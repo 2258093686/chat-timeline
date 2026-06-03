@@ -1,11 +1,10 @@
-// M7 通信层：宿主 ↔ Webview 共享协议。
-// 设计依据：detailed-design §9.1。所有消息为可序列化纯对象。
-
-import { Session, SessionSummary } from '../model/types';
+// Typed host <-> webview message protocol (M7). Shared by both sides.
+import type { Session, SessionSummary } from '../model/types';
 
 export type Layout = 'detail' | 'compact';
+export type SortOrder = 'newest' | 'oldest';
 
-/** Webview → 宿主 */
+/** Messages sent from the webview to the host. */
 export type ViewToHost =
   | { type: 'ready' }
   | { type: 'selectSession'; sessionId: string }
@@ -16,39 +15,26 @@ export type ViewToHost =
   | { type: 'refresh' }
   | { type: 'setLayout'; layout: Layout };
 
-/** 宿主 → Webview */
+/** Messages sent from the host to the webview. */
 export type HostToView =
-  | { type: 'sessions'; sessions: SessionSummary[]; failures: number }
+  | { type: 'sessions'; sessions: SessionSummary[]; activeSessionId?: string }
   | { type: 'session'; session: Session; stars: string[] }
   | { type: 'searchResult'; turnIds: string[] }
   | { type: 'layout'; layout: Layout }
+  | { type: 'loading' }
+  | { type: 'empty'; reason: 'no-data' | 'no-sessions' }
   | { type: 'error'; message: string };
 
-export type ViewToHostType = ViewToHost['type'];
-export type HostToViewType = HostToView['type'];
-
-const VIEW_TO_HOST_TYPES: ViewToHostType[] = [
-  'ready',
-  'selectSession',
-  'selectTurn',
-  'search',
-  'toggleStar',
-  'copy',
-  'refresh',
-  'setLayout',
-];
-
-/** 校验来自 Webview 的消息是否为合法 ViewToHost（防意外/恶意消息）。 */
-export function isViewToHost(msg: unknown): msg is ViewToHost {
-  if (typeof msg !== 'object' || msg === null) {
+/**
+ * Validate that an arbitrary value is a well-formed ViewToHost message.
+ * Host-side guard against malformed / malicious messages.
+ */
+export function isViewToHost(value: unknown): value is ViewToHost {
+  if (typeof value !== 'object' || value === null) {
     return false;
   }
-  const m = msg as Record<string, unknown>;
-  const type = m.type;
-  if (typeof type !== 'string' || !VIEW_TO_HOST_TYPES.includes(type as ViewToHostType)) {
-    return false;
-  }
-  switch (type) {
+  const m = value as Record<string, unknown>;
+  switch (m.type) {
     case 'ready':
     case 'refresh':
       return true;
@@ -60,7 +46,10 @@ export function isViewToHost(msg: unknown): msg is ViewToHost {
     case 'search':
       return typeof m.keyword === 'string';
     case 'copy':
-      return (m.target === 'prompt' || m.target === 'response') && typeof m.turnId === 'string';
+      return (
+        (m.target === 'prompt' || m.target === 'response') &&
+        typeof m.turnId === 'string'
+      );
     case 'setLayout':
       return m.layout === 'detail' || m.layout === 'compact';
     default:

@@ -1,24 +1,22 @@
-// M1 数据源层接口。
-// 设计依据：detailed-design §4.1。M4 只依赖该接口，不关心 local/participant。
+import type * as vscode from 'vscode';
 
-import { Event } from '../util/event';
-
-/** 一个原始会话文件 */
+/** A raw session file (located + read, not yet parsed into the domain model). */
 export interface RawSessionFile {
   workspaceId: string;
   sessionId: string;
   filePath: string;
-  /** 原始 JSON 对象（未解析为领域模型） */
+  /** Raw JSON object (unparsed into the domain model). */
   raw: unknown;
 }
 
+/** Abstract chat data source. M4 depends only on this, not on local vs participant. */
 export interface IChatSource {
-  /** 启动：建立监听等 */
+  /** Start: set up watchers etc. */
   start(): Promise<void>;
-  /** 停止：释放 watcher 等资源 */
+  /** Stop: release watchers etc. */
   dispose(): void;
-  /** 拉取所有原始会话（已定位文件并读出 JSON 对象） */
+  /** Load all raw session files (located + parsed JSON). */
   loadRawSessions(): Promise<RawSessionFile[]>;
-  /** 数据变化事件（watcher 触发，已去抖） */
-  readonly onDidChange: Event<void>;
+  /** Data-change event (already debounced). */
+  readonly onDidChange: vscode.Event<void>;
 }

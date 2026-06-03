@@ -1,42 +1,36 @@
-// M5 状态存储 Store —— 星标（F）持久化，用 globalState（跨工作区共享）。
-// 设计依据：detailed-design §7、proposal §3.8-F。
+import type * as vscode from 'vscode';
 
-/** 最小持久化门面，对应 vscode.Memento 的子集。 */
-export interface MementoLike {
-  get<T>(key: string, defaultValue: T): T;
-  update(key: string, value: unknown): Thenable<void> | void;
-}
-
+/** Persists user-generated data not present in the files: stars (enhanced info F). */
 export interface IStarStore {
   isStarred(turnId: string): boolean;
   toggle(turnId: string): void;
   all(): string[];
 }
 
-const STORAGE_KEY = 'chatTimeline.stars';
+const KEY = 'chatTimeline.stars';
 
 export class StarStore implements IStarStore {
-  private readonly stars: Set<string>;
+  private set: Set<string>;
 
-  constructor(private readonly memento: MementoLike) {
-    const persisted = memento.get<string[]>(STORAGE_KEY, []);
-    this.stars = new Set(Array.isArray(persisted) ? persisted : []);
+  constructor(private readonly memento: vscode.Memento) {
+    const existing = memento.get<string[]>(KEY, []);
+    this.set = new Set(existing);
   }
 
   isStarred(turnId: string): boolean {
-    return this.stars.has(turnId);
+    return this.set.has(turnId);
   }
 
   toggle(turnId: string): void {
-    if (this.stars.has(turnId)) {
-      this.stars.delete(turnId);
+    if (this.set.has(turnId)) {
+      this.set.delete(turnId);
     } else {
-      this.stars.add(turnId);
+      this.set.add(turnId);
     }
-    void this.memento.update(STORAGE_KEY, [...this.stars]);
+    void this.memento.update(KEY, Array.from(this.set));
   }
 
   all(): string[] {
-    return [...this.stars];
+    return Array.from(this.set);
   }
 }

@@ -1,34 +1,35 @@
-// esbuild build script: bundles the extension host (Node/CJS) and the webview (browser/IIFE).
+'use strict';
+
 const esbuild = require('esbuild');
 
-const watch = process.argv.includes('--watch');
 const production = process.argv.includes('--production');
+const watch = process.argv.includes('--watch');
 
 /** @type {import('esbuild').BuildOptions} */
 const hostConfig = {
   entryPoints: ['src/extension.ts'],
   bundle: true,
-  outfile: 'dist/extension.js',
-  platform: 'node',
   format: 'cjs',
+  platform: 'node',
   target: 'node18',
+  outfile: 'dist/extension.js',
   external: ['vscode'],
   sourcemap: !production,
   minify: production,
-  logLevel: 'info',
+  logLevel: 'info'
 };
 
 /** @type {import('esbuild').BuildOptions} */
 const webviewConfig = {
   entryPoints: ['media/main.ts'],
   bundle: true,
-  outfile: 'dist/webview.js',
-  platform: 'browser',
   format: 'iife',
+  platform: 'browser',
   target: 'es2020',
+  outfile: 'dist/webview/main.js',
   sourcemap: !production,
   minify: production,
-  logLevel: 'info',
+  logLevel: 'info'
 };
 
 async function main() {

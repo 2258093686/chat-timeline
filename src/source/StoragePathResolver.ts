@@ -1,118 +1,152 @@
-// M1 子模块：可移植路径解析。
-// 设计依据：detailed-design §4.2。三级回退定位 workspaceStorage 根目录，绝不写死绝对路径。
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import type * as vscode from 'vscode';
 
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { existsSync } from 'node:fs';
-
+/** Locates the VS Code `User/workspaceStorage` root in a portable way. */
 export interface IStoragePathResolver {
-  /** 返回 workspaceStorage 根目录绝对路径；全部失败抛出可识别错误 */
+  /** Returns the absolute workspaceStorage root path; throws a recognizable error when all levels fail. */
   resolveWorkspaceStorageRoot(): Promise<string>;
 }
 
-/** 可注入的环境依赖，便于单测。 */
-export interface ResolverEnv {
-  /** 来自 context.globalStorageUri.fsPath（首选，自动适配 OS/发行版） */
+/** Recognizable error thrown when the storage root cannot be located. */
+export class StorageRootNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StorageRootNotFoundError';
+  }
+}
+
+export interface ResolverDeps {
+  /** User-provided override (chatTimeline.storagePath). Empty = unset. */
+  userStoragePath: string;
+  /** context.globalStorageUri.fsPath, used to reverse-derive the User root. */
   globalStorageFsPath?: string;
-  /** 来自 context.storageUri.fsPath（工作区级，可反推 workspaceStorage 根） */
-  storageFsPath?: string;
-  /** 用户兜底设置 chatTimeline.storagePath（最高优先级） */
-  storagePathSetting?: string;
   platform?: NodeJS.Platform;
-  homedir?: () => string;
-  /** 路径是否存在（默认 fs.existsSync），测试可注入 */
+  homedir?: string;
+  /** Test seam for existence checks. */
   exists?: (p: string) => boolean;
 }
 
-/** 错误标识，便于 M8 识别并提示用户手动配置。 */
-export class StoragePathNotFoundError extends Error {
-  readonly code = 'CHAT_TIMELINE_STORAGE_NOT_FOUND';
-  constructor(message: string) {
-    super(message);
-    this.name = 'StoragePathNotFoundError';
+function defaultExists(p: string): boolean {
+  try {
+    return fs.existsSync(p);
+  } catch {
+    return false;
   }
 }
 
-const DISTRO_DIRS = ['Code', 'Code - Insiders', 'Code - Exploration', 'VSCodium', 'Cursor'];
+/** Candidate VS Code distribution directory names (most common first). */
+const DISTRO_DIRS = [
+  'Code',
+  'Code - Insiders',
+  'Code - Exploration',
+  'VSCodium',
+  'VSCodium - Insiders'
+];
 
+/**
+ * Three-level fallback (highest priority last):
+ *   1. Official API: reverse-derive from context.globalStorageUri.
+ *   2. Platform fallback: process.platform + homedir + distro scan.
+ *   3. User override: chatTimeline.storagePath (wins when set).
+ */
 export class StoragePathResolver implements IStoragePathResolver {
-  private readonly exists: (p: string) => boolean;
-  private readonly platform: NodeJS.Platform;
-  private readonly homedir: () => string;
-
-  constructor(private readonly env: ResolverEnv = {}) {
-    this.exists = env.exists ?? existsSync;
-    this.platform = env.platform ?? process.platform;
-    this.homedir = env.homedir ?? os.homedir;
-  }
+  constructor(private readonly deps: ResolverDeps) {}
 
   async resolveWorkspaceStorageRoot(): Promise<string> {
-    // 级别 3（最高优先级）：用户兜底设置。
-    const setting = this.env.storagePathSetting?.trim();
-    if (setting) {
-      return setting;
+    const exists = this.deps.exists ?? defaultExists;
+    const platform = this.deps.platform ?? process.platform;
+    const home = this.deps.homedir ?? os.homedir();
+
+    // 3. User override — highest priority when set.
+    const override = (this.deps.userStoragePath ?? '').trim();
+    if (override.length > 0) {
+      const root = path.basename(override) === 'workspaceStorage'
+        ? override
+        : path.join(override, 'workspaceStorage');
+      if (exists(root)) {
+        return root;
+      }
+      if (exists(override)) {
+        return override;
+      }
+      throw new StorageRootNotFoundError(
+        `Configured chatTimeline.storagePath does not exist: ${override}`
+      );
     }
 
-    // 级别 1（首选）：由官方 API 路径反推 User 根目录。
-    const fromApi = this.fromOfficialApi();
-    if (fromApi && this.exists(fromApi)) {
+    // 1. Official API: globalStorage is `<User>/globalStorage/...`; go up to <User>.
+    const fromApi = this.deriveFromGlobalStorage(this.deps.globalStorageFsPath);
+    if (fromApi && exists(fromApi)) {
       return fromApi;
     }
 
-    // 级别 2：平台回退 + 候选发行版目录扫描。
-    const fromPlatform = this.fromPlatform();
-    if (fromPlatform) {
-      return fromPlatform;
+    // 2. Platform fallback: build the User dir per OS, scan distro names.
+    for (const distro of DISTRO_DIRS) {
+      const userDir = this.userDirForPlatform(platform, home, distro);
+      if (!userDir) {
+        continue;
+      }
+      const root = path.join(userDir, 'workspaceStorage');
+      if (exists(root)) {
+        return root;
+      }
     }
 
-    throw new StoragePathNotFoundError(
-      'Unable to locate the Copilot Chat data directory. Please set "chatTimeline.storagePath" manually.',
+    throw new StorageRootNotFoundError(
+      'Unable to locate the Copilot Chat data directory. Please set "chatTimeline.storagePath" manually.'
     );
   }
 
-  /** globalStorageUri: <User>/globalStorage/<ext> → <User>/workspaceStorage；
-   *  storageUri:       <User>/workspaceStorage/<wsid>/<ext> → <User>/workspaceStorage */
-  private fromOfficialApi(): string | undefined {
-    const g = this.env.globalStorageFsPath;
-    if (g) {
-      // dirname(globalStorage/<ext>) = globalStorage ; dirname = User
-      const userRoot = path.dirname(path.dirname(g));
-      return path.join(userRoot, 'workspaceStorage');
+  /** `<User>/globalStorage` -> `<User>/workspaceStorage`. */
+  private deriveFromGlobalStorage(globalStorageFsPath?: string): string | undefined {
+    if (!globalStorageFsPath) {
+      return undefined;
     }
-    const s = this.env.storageFsPath;
-    if (s) {
-      // <User>/workspaceStorage/<wsid>/<ext> → 上溯两级得 workspaceStorage
-      return path.dirname(path.dirname(s));
+    // globalStorageUri = <User>/globalStorage/<extId>
+    // walk up until we find a parent whose name is globalStorage.
+    let dir = globalStorageFsPath;
+    for (let i = 0; i < 4; i++) {
+      const base = path.basename(dir);
+      const parent = path.dirname(dir);
+      if (base === 'globalStorage') {
+        return path.join(parent, 'workspaceStorage');
+      }
+      if (parent === dir) {
+        break;
+      }
+      dir = parent;
     }
     return undefined;
   }
 
-  private fromPlatform(): string | undefined {
-    const home = this.homedir();
-    const userBaseCandidates: string[] = [];
-    if (this.platform === 'win32') {
-      const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
-      for (const d of DISTRO_DIRS) {
-        userBaseCandidates.push(path.join(appData, d, 'User'));
+  private userDirForPlatform(
+    platform: NodeJS.Platform,
+    home: string,
+    distro: string
+  ): string | undefined {
+    switch (platform) {
+      case 'win32': {
+        const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
+        return path.join(appData, distro, 'User');
       }
-    } else if (this.platform === 'darwin') {
-      for (const d of DISTRO_DIRS) {
-        userBaseCandidates.push(path.join(home, 'Library', 'Application Support', d, 'User'));
-      }
-    } else {
-      // linux / other
-      const configHome = process.env.XDG_CONFIG_HOME ?? path.join(home, '.config');
-      for (const d of DISTRO_DIRS) {
-        userBaseCandidates.push(path.join(configHome, d, 'User'));
-      }
+      case 'darwin':
+        return path.join(home, 'Library', 'Application Support', distro, 'User');
+      default:
+        // linux & others
+        return path.join(home, '.config', distro, 'User');
     }
-
-    for (const base of userBaseCandidates) {
-      const ws = path.join(base, 'workspaceStorage');
-      if (this.exists(ws)) {
-        return ws;
-      }
-    }
-    return undefined;
   }
+}
+
+/** Convenience factory from a VS Code extension context + user setting. */
+export function createResolver(
+  context: vscode.ExtensionContext,
+  userStoragePath: string
+): StoragePathResolver {
+  return new StoragePathResolver({
+    userStoragePath,
+    globalStorageFsPath: context.globalStorageUri?.fsPath
+  });
 }

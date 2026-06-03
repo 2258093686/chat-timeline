@@ -1,104 +1,78 @@
-// M4 会话管理 SessionManager。
-// 设计依据：detailed-design §6。汇聚 Source + Parser + Store：列表/排序/过滤/选中/搜索/星标。
-
-import { Emitter, Event } from '../util/event';
-import { Session, SessionSummary, Turn } from '../model/types';
-import { IChatSource, RawSessionFile } from '../source/IChatSource';
-import { ParserRegistry } from '../parser/ParserRegistry';
-import { ParseContext } from '../parser/ISessionParser';
-import { IStarStore } from '../store/StarStore';
+import * as vscode from 'vscode';
+import type { Session, SessionSummary, Turn } from '../model/types';
+import type { IChatSource, RawSessionFile } from '../source/IChatSource';
+import type { ParserRegistry } from '../parser/parserRegistry';
+import type { IStarStore } from '../store/starStore';
 
 export interface ISessionManager {
-  readonly onDidUpdate: Event<void>;
+  readonly onDidUpdate: vscode.Event<void>;
+  refresh(): Promise<void>;
   listSessions(): SessionSummary[];
   selectSession(id: string): Promise<Session | undefined>;
   getCurrent(): Session | undefined;
   search(keyword: string): Turn[];
   toggleStar(turnId: string): void;
   isStarred(turnId: string): boolean;
-  /** 解析失败的会话数（供 UI 提示"部分会话解析失败"） */
-  getParseFailureCount(): number;
-  start(): Promise<void>;
-  dispose(): void;
-}
-
-export interface SessionManagerDeps {
-  source: IChatSource;
-  parser: ParserRegistry;
-  store: IStarStore;
-  longThreshold?: () => number;
-  warn?: (msg: string) => void;
+  stars(): string[];
 }
 
 export class SessionManager implements ISessionManager {
-  private readonly emitter = new Emitter<void>();
-  readonly onDidUpdate: Event<void> = this.emitter.event;
+  private readonly _onDidUpdate = new vscode.EventEmitter<void>();
+  readonly onDidUpdate = this._onDidUpdate.event;
 
-  private raws: RawSessionFile[] = [];
+  private rawById = new Map<string, RawSessionFile>();
   private summaries: SessionSummary[] = [];
   private current: Session | undefined;
-  private parseFailures = 0;
-  private changeSub: { dispose(): void } | undefined;
+  private currentId: string | undefined;
+  private changeSub: vscode.Disposable | undefined;
 
-  constructor(private readonly deps: SessionManagerDeps) {}
+  constructor(
+    private readonly source: IChatSource,
+    private readonly parser: ParserRegistry,
+    private readonly store: IStarStore
+  ) {}
 
   async start(): Promise<void> {
-    this.changeSub = this.deps.source.onDidChange(() => {
-      void this.reload();
+    await this.source.start();
+    this.changeSub = this.source.onDidChange(() => {
+      void this.refresh();
     });
-    await this.deps.source.start();
-    await this.reload();
+    await this.refresh();
   }
 
   dispose(): void {
     this.changeSub?.dispose();
-    this.deps.source.dispose();
-    this.emitter.dispose();
+    this.source.dispose();
+    this._onDidUpdate.dispose();
   }
 
-  private get longThreshold(): number {
-    return this.deps.longThreshold?.() ?? 2000;
-  }
-
-  private ctxFor(raw: RawSessionFile): ParseContext {
-    return { workspaceId: raw.workspaceId, filePath: raw.filePath, longThreshold: this.longThreshold };
-  }
-
-  async reload(): Promise<void> {
-    this.parseFailures = 0;
-    try {
-      this.raws = await this.deps.source.loadRawSessions();
-    } catch (err) {
-      this.deps.warn?.(`loadRawSessions failed: ${String(err)}`);
-      this.raws = [];
-    }
-
+  async refresh(): Promise<void> {
+    const raws = await this.source.loadRawSessions();
+    this.rawById.clear();
     const summaries: SessionSummary[] = [];
-    for (const raw of this.raws) {
-      const summary = this.deps.parser.parseSummary(raw.raw, this.ctxFor(raw));
-      if (!summary) {
-        this.parseFailures++;
-        continue;
+    for (const raw of raws) {
+      this.rawById.set(raw.sessionId, raw);
+      const summary = this.parser.parseSummary(raw.raw, {
+        workspaceId: raw.workspaceId,
+        filePath: raw.filePath
+      });
+      if (summary) {
+        // ensure the summary id matches the file's session id for lookup
+        summary.id = raw.sessionId;
+        summaries.push(summary);
       }
-      // 过滤空会话（无有效轮）。
-      if (summary.turnCount <= 0) {
-        continue;
-      }
-      summaries.push(summary);
     }
-    // 最近会话：按 lastMessageDate 降序。
     summaries.sort((a, b) => (b.lastMessageDate ?? 0) - (a.lastMessageDate ?? 0));
     this.summaries = summaries;
 
-    // 若当前选中会话仍存在，刷新其详情；否则保持。
-    if (this.current) {
-      const refreshed = await this.selectSession(this.current.id);
-      if (!refreshed) {
-        this.current = undefined;
-      }
+    // Re-resolve current selection (or auto-pick most recent).
+    if (this.currentId && this.rawById.has(this.currentId)) {
+      this.current = this.parseDetail(this.currentId);
+    } else {
+      this.currentId = summaries[0]?.id;
+      this.current = this.currentId ? this.parseDetail(this.currentId) : undefined;
     }
-
-    this.emitter.fire();
+    this._onDidUpdate.fire();
   }
 
   listSessions(): SessionSummary[] {
@@ -106,47 +80,54 @@ export class SessionManager implements ISessionManager {
   }
 
   async selectSession(id: string): Promise<Session | undefined> {
-    const raw = this.raws.find((r) => r.sessionId === id);
-    if (!raw) {
-      return undefined;
-    }
-    const session = this.deps.parser.parseSession(raw.raw, this.ctxFor(raw));
-    if (!session) {
-      this.deps.warn?.(`Failed to parse session ${id}`);
-      return undefined;
-    }
-    this.current = session;
-    return session;
+    this.currentId = id;
+    this.current = this.parseDetail(id);
+    return this.current;
   }
 
   getCurrent(): Session | undefined {
     return this.current;
   }
 
+  getCurrentId(): string | undefined {
+    return this.currentId;
+  }
+
   search(keyword: string): Turn[] {
-    if (!this.current) {
-      return [];
-    }
     const kw = keyword.trim().toLowerCase();
-    if (!kw) {
-      return this.current.turns;
+    if (!kw || !this.current) {
+      return this.current?.turns ?? [];
     }
     return this.current.turns.filter(
       (t) =>
         t.prompt.toLowerCase().includes(kw) ||
-        t.responseMarkdown.toLowerCase().includes(kw),
+        t.responseMarkdown.toLowerCase().includes(kw)
     );
   }
 
   toggleStar(turnId: string): void {
-    this.deps.store.toggle(turnId);
+    this.store.toggle(turnId);
+    this._onDidUpdate.fire();
   }
 
   isStarred(turnId: string): boolean {
-    return this.deps.store.isStarred(turnId);
+    return this.store.isStarred(turnId);
   }
 
-  getParseFailureCount(): number {
-    return this.parseFailures;
+  stars(): string[] {
+    return this.store.all();
+  }
+
+  private parseDetail(id: string): Session | undefined {
+    const raw = this.rawById.get(id);
+    if (!raw) {
+      return undefined;
+    }
+    return (
+      this.parser.parseSession(raw.raw, {
+        workspaceId: raw.workspaceId,
+        filePath: raw.filePath
+      }) ?? undefined
+    );
   }
 }

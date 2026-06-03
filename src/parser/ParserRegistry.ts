@@ -1,68 +1,58 @@
-// M2 解析层：版本分发注册表。
-// 设计依据：detailed-design §5.1。未知版本回退到最接近的解析器并告警，不崩溃。
+import type { Session, SessionSummary } from '../model/types';
+import type { ISessionParser, ParseContext } from './ISessionParser';
+import { SessionParserV3 } from './v3/sessionParserV3';
 
-import { Session, SessionSummary } from '../model/types';
-import { ISessionParser, ParseContext } from './ISessionParser';
-import { SessionParserV3 } from './v3/SessionParserV3';
-
-function readVersion(raw: unknown): number | undefined {
-  if (typeof raw === 'object' && raw !== null) {
-    const v = (raw as Record<string, unknown>).version;
-    if (typeof v === 'number' && Number.isFinite(v)) {
+/** Reads the top-level `version` of a raw session object (best-effort). */
+function readVersion(raw: unknown): number {
+  if (raw && typeof raw === 'object' && 'version' in raw) {
+    const v = (raw as { version: unknown }).version;
+    if (typeof v === 'number') {
       return v;
     }
   }
-  return undefined;
+  return 0;
 }
 
+/**
+ * Dispatches a raw session to the matching parser by `version`.
+ * Unknown versions fall back to the closest (highest) parser and log a warning
+ * instead of crashing (fault tolerance).
+ */
 export class ParserRegistry {
   private readonly parsers: ISessionParser[];
 
-  constructor(
-    parsers?: ISessionParser[],
-    private readonly warn: (msg: string) => void = () => undefined,
-  ) {
+  constructor(parsers?: ISessionParser[], private readonly warn: (m: string) => void = () => {}) {
     this.parsers = parsers ?? [new SessionParserV3()];
   }
 
-  /** 为给定 raw 选择解析器：精确匹配优先，否则回退到最接近版本的解析器。 */
-  select(raw: unknown): ISessionParser | undefined {
-    const version = readVersion(raw);
-    if (version !== undefined) {
-      const exact = this.parsers.find((p) => p.canParse(version));
-      if (exact) {
-        return exact;
-      }
-      this.warn(`Unknown session version ${version}; falling back to closest parser.`);
-    } else {
-      this.warn('Session has no version field; falling back to closest parser.');
+  private select(version: number): ISessionParser | undefined {
+    const exact = this.parsers.find((p) => p.canParse(version));
+    if (exact) {
+      return exact;
     }
-    // 回退：当前只有 V3，直接返回首个解析器（最接近）。
-    return this.parsers[0];
+    if (this.parsers.length > 0) {
+      this.warn(`chat-timeline: unknown session version ${version}, using fallback parser.`);
+      return this.parsers[this.parsers.length - 1];
+    }
+    return undefined;
   }
 
   parseSummary(raw: unknown, ctx: ParseContext): SessionSummary | null {
-    const parser = this.select(raw);
-    if (!parser) {
-      return null;
-    }
     try {
-      return parser.parseSummary(raw, ctx);
+      const parser = this.select(readVersion(raw));
+      return parser ? parser.parseSummary(raw, ctx) : null;
     } catch (err) {
-      this.warn(`parseSummary failed for ${ctx.filePath}: ${String(err)}`);
+      this.warn(`chat-timeline: parseSummary failed for ${ctx.filePath}: ${String(err)}`);
       return null;
     }
   }
 
   parseSession(raw: unknown, ctx: ParseContext): Session | null {
-    const parser = this.select(raw);
-    if (!parser) {
-      return null;
-    }
     try {
-      return parser.parseSession(raw, ctx);
+      const parser = this.select(readVersion(raw));
+      return parser ? parser.parseSession(raw, ctx) : null;
     } catch (err) {
-      this.warn(`parseSession failed for ${ctx.filePath}: ${String(err)}`);
+      this.warn(`chat-timeline: parseSession failed for ${ctx.filePath}: ${String(err)}`);
       return null;
     }
   }
