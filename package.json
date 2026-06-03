@@ -1,0 +1,134 @@
+{
+  "name": "chat-timeline",
+  "displayName": "Chat Timeline",
+  "description": "Visualize each turn of your GitHub Copilot Chat sessions as a clickable timeline in the activity bar.",
+  "version": "1.0.0",
+  "publisher": "vibe",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "copilot",
+    "chat",
+    "timeline",
+    "history"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "chatTimeline",
+          "title": "Chat Timeline",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "chatTimeline": [
+        {
+          "type": "webview",
+          "id": "chatTimeline.view",
+          "name": "Timeline"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "chatTimeline.refresh",
+        "title": "Chat Timeline: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "chatTimeline.toggleLayout",
+        "title": "Chat Timeline: Toggle Layout"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "chatTimeline.refresh",
+          "when": "view == chatTimeline.view",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Chat Timeline",
+      "properties": {
+        "chatTimeline.layout": {
+          "type": "string",
+          "enum": [
+            "detail",
+            "compact"
+          ],
+          "default": "detail",
+          "description": "Detail layout: node list with a detail pane (detail) or summary rows only (compact)."
+        },
+        "chatTimeline.source": {
+          "type": "string",
+          "enum": [
+            "local",
+            "participant"
+          ],
+          "default": "local",
+          "description": "Data source: local chat files (local) or the @timeline participant entry (participant)."
+        },
+        "chatTimeline.storagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Portable fallback: manually specify the workspaceStorage path (empty = auto-detect)."
+        },
+        "chatTimeline.refreshDebounceMs": {
+          "type": "number",
+          "default": 500,
+          "description": "Debounce interval (ms) for refresh on file changes."
+        },
+        "chatTimeline.relativeTime": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show timestamps as relative time."
+        },
+        "chatTimeline.longThreshold": {
+          "type": "number",
+          "default": 2000,
+          "description": "Character threshold above which a turn is marked as a long conversation."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc --noEmit && node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src media test --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "build:prod": "tsc --noEmit && node esbuild.js --production",
+    "package": "npm run build:prod && vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "highlight.js": "^11.9.0",
+    "markdown-it": "^14.1.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.1",
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^7.7.0",
+    "@typescript-eslint/parser": "^7.7.0",
+    "@vitest/coverage-v8": "^1.5.0",
+    "@vscode/vsce": "^2.26.0",
+    "esbuild": "^0.20.2",
+    "eslint": "^8.57.0",
+    "jsdom": "^24.0.0",
+    "typescript": "^5.4.5",
+    "vitest": "^1.5.0"
+  }
+}

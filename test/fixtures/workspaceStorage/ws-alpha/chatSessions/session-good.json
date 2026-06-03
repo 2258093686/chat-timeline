@@ -1,0 +1,56 @@
+{
+  "version": 3,
+  "sessionId": "11111111-aaaa-bbbb-cccc-222222222222",
+  "requesterUsername": "alice",
+  "responderUsername": "GitHub Copilot",
+  "creationDate": 1755140980000,
+  "lastMessageDate": 1755141999000,
+  "customTitle": "Regex key filtering",
+  "requests": [
+    {
+      "requestId": "request_aaa",
+      "message": { "text": "How do I filter keys with a regex?", "parts": [] },
+      "response": [
+        { "value": "Use a pattern like " },
+        { "value": "```js\nconst re = /^key_/;\n```\n" },
+        { "kind": "inlineReference", "inlineReference": { "fsPath": "C:/proj/src/keys.ts", "path": "C:/proj/src/keys.ts" } },
+        { "kind": "progressTaskSerialized", "value": "summarized history" },
+        { "kind": "someFutureUnknownKind", "value": "ignore me" }
+      ],
+      "result": {
+        "timings": { "firstProgress": 1000, "totalElapsed": 2000 },
+        "metadata": {
+          "codeBlocks": [ { "code": "const re = /^key_/;" } ],
+          "toolCallRounds": [
+            { "toolCalls": [ { "name": "read_file" }, { "name": "grep_search" } ] }
+          ]
+        }
+      },
+      "modelId": "copilot/gpt-5",
+      "timestamp": 1755140981000,
+      "isCanceled": false,
+      "agent": { "id": "github.copilot.default" },
+      "contentReferences": [
+        { "reference": { "fsPath": "C:/proj/README.md", "path": "C:/proj/README.md" } }
+      ]
+    },
+    {
+      "requestId": "request_bbb",
+      "message": { "text": "Now make it case-insensitive." },
+      "response": [
+        { "kind": "markdown", "value": "Add the `i` flag." }
+      ],
+      "result": {
+        "errorDetails": { "message": "Model timed out", "responseIsIncomplete": true }
+      },
+      "modelId": "github.copilot-chat/claude-sonnet-4",
+      "timestamp": 1755141500000,
+      "isCanceled": false
+    },
+    {
+      "requestId": "request_ccc_empty",
+      "message": { "text": "" },
+      "response": []
+    }
+  ]
+}

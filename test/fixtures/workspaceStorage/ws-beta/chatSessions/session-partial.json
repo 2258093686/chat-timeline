@@ -1,0 +1,11 @@
+{
+  "version": 3,
+  "sessionId": "55555555-no-timestamp",
+  "lastMessageDate": 1755200000000,
+  "requests": [
+    {
+      "message": { "text": "No timestamp and no requestId here" },
+      "response": [ "plain string fragment without kind" ]
+    }
+  ]
+}

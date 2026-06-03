@@ -1,0 +1,5 @@
+{"kind":0,"v":{"version":3,"requesterUsername":"user","responderUsername":"GitHub Copilot","requests":[]}}
+{"kind":2,"k":["requests"],"v":{"requestId":"r1","message":{"text":"How do I sort an array?"},"response":[{"value":"Use the .sort() method."}],"modelId":"copilot/claude-opus-4","timestamp":1700000000000}}
+{"kind":2,"k":["requests"],"v":{"requestId":"r2","message":{"text":"And reverse it?"},"response":[],"timestamp":1700000100000}}
+{"kind":1,"k":["requests",1,"response"],"v":[{"value":"Call .reverse()."}]}
+{"kind":1,"k":["lastMessageDate"],"v":1700000100000}

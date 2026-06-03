@@ -1,0 +1,11 @@
+{
+  "version": 3,
+  "sessionId": "33333333-dddd-eeee-ffff-444444444444",
+  "responderUsername": "GitHub Copilot",
+  "creationDate": 1755100000000,
+  "lastMessageDate": 1755100000000,
+  "requests": [
+    { "requestId": "r_empty1", "message": { "text": "" }, "response": [] },
+    { "requestId": "r_empty2", "message": { "text": "   " }, "response": [] }
+  ]
+}
