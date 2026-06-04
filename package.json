@@ -2,7 +2,7 @@
   "name": "chat-timeline",
   "displayName": "Chat Timeline",
   "description": "A session timeline / semantic minimap for GitHub Copilot Chat: browse, locate and revisit every question/answer turn as clickable timeline nodes.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "vibe-prompts",
   "license": "MIT",
   "engines": {
@@ -111,9 +111,9 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src --ext ts",
-    "test": "node --test --import tsx test/*.test.ts",
+    "test": "node --import tsx --test test/**/*.test.ts",
     "vsix": "vsce package --no-dependencies"
   },
   "devDependencies": {

@@ -1,0 +1,51 @@
+{
+  "version": 3,
+  "sessionId": "sess-sample-1",
+  "requesterUsername": "user",
+  "responderUsername": "GitHub Copilot",
+  "creationDate": 1755140980000,
+  "lastMessageDate": 1755141000000,
+  "customTitle": "Sample session title",
+  "requests": [
+    {
+      "requestId": "req-1",
+      "message": { "text": "How do I read a file in Node?" },
+      "response": [
+        { "value": { "value": "You can use `fs.readFile`.\n\n" } },
+        {
+          "kind": "inlineReference",
+          "inlineReference": {
+            "name": "index.ts",
+            "location": { "uri": { "fsPath": "c:\\proj\\index.ts", "scheme": "file" } }
+          }
+        },
+        { "value": { "value": "```ts\nimport fs from 'fs';\n```" } }
+      ],
+      "result": {
+        "metadata": {
+          "codeBlocks": [{ "code": "import fs from 'fs';" }],
+          "toolCallRounds": [{ "toolCalls": [{ "name": "read_file" }, { "name": "grep" }] }]
+        }
+      },
+      "modelId": "github.copilot-chat/claude-sonnet-4",
+      "timestamp": 1755140980904,
+      "isCanceled": false
+    },
+    {
+      "requestId": "req-2",
+      "message": { "text": "And how to write one?" },
+      "response": [{ "value": { "value": "Use `fs.writeFile`." } }],
+      "result": {
+        "errorDetails": { "message": "Request failed", "responseIsIncomplete": true }
+      },
+      "modelId": "copilot/gpt-5",
+      "timestamp": 1755141000000,
+      "isCanceled": false
+    },
+    {
+      "requestId": "req-empty",
+      "message": { "text": "   " },
+      "response": []
+    }
+  ]
+}

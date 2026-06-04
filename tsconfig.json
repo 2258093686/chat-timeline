@@ -23,8 +23,7 @@
   },
   "include": [
     "src",
-    "media",
-    "test"
+    "media"
   ],
   "exclude": [
     "node_modules",

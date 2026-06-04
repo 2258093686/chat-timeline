@@ -1,0 +1,25 @@
+{
+  "version": 3,
+  "sessionId": "sess-broken",
+  "lastMessageDate": 1755141000000,
+  "requests": [
+    {
+      "requestId": "req-ok",
+      "message": { "text": "valid prompt with unknown segments" },
+      "response": [
+        { "kind": "someFutureKind", "value": { "value": "should be ignored" } },
+        { "value": { "value": "kept text" } },
+        { "kind": "prepareToolInvocation" }
+      ]
+    },
+    {
+      "message": null,
+      "response": "not-an-array"
+    },
+    {
+      "requestId": "req-no-timestamp",
+      "message": { "text": "no timestamp here" },
+      "response": [{ "value": "plain string segment" }]
+    }
+  ]
+}
