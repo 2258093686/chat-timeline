@@ -4,6 +4,7 @@ import type {
   SessionSummary,
   Turn,
   TurnFileRef,
+  TurnImage,
   TurnStatus
 } from '../../model/types';
 import type { ISessionParser, ParseContext } from '../ISessionParser';
@@ -64,6 +65,75 @@ function segmentText(seg: unknown): string {
   return '';
 }
 
+/**
+ * Clean up reconstructed response markdown.
+ *
+ * When the assistant edits code via tools, the streamed response keeps the
+ * surrounding code-fence markers (``` ... ```) as text segments, but the
+ * actual code lives in non-text segments that we drop. The leftover fences
+ * concatenate into empty code blocks that render as blank boxes. Remove those
+ * empty fenced blocks and collapse the excess blank lines they leave behind.
+ */
+function cleanResponseMarkdown(md: string): string {
+  if (!md) {
+    return md;
+  }
+  // Drop fenced code blocks whose body is only whitespace.
+  let out = md.replace(/```[^\n]*\n\s*```/g, '');
+  // Collapse 3+ consecutive newlines into a single blank line.
+  out = out.replace(/\n{3,}/g, '\n\n');
+  return out.trim();
+}
+
+/** Kinds that represent an executed/prepared tool call (a "process" step). */
+const TOOL_KINDS = new Set(['toolInvocationSerialized', 'prepareToolInvocation']);
+
+/**
+ * Split a response into its intermediate "process" narration (text between
+ * tool calls) and the final answer (text after the last tool call).
+ *
+ * The full concatenation is returned as `full` for search/preview, while the
+ * detail pane can show `process` collapsed and `answer` expanded.
+ */
+function splitResponseParts(response: unknown[]): {
+  full: string;
+  process?: string;
+  answer: string;
+} {
+  let lastToolIdx = -1;
+  for (let i = 0; i < response.length; i++) {
+    const seg = response[i];
+    const kind = isObj(seg) ? str(seg.kind) : undefined;
+    if (kind && TOOL_KINDS.has(kind)) {
+      lastToolIdx = i;
+    }
+  }
+
+  let processRaw = '';
+  let answerRaw = '';
+  for (let i = 0; i < response.length; i++) {
+    const text = segmentText(response[i]);
+    if (i <= lastToolIdx) {
+      processRaw += text;
+    } else {
+      answerRaw += text;
+    }
+  }
+
+  const full = cleanResponseMarkdown(processRaw + answerRaw);
+  let process = cleanResponseMarkdown(processRaw);
+  let answer = cleanResponseMarkdown(answerRaw);
+
+  // If nothing remains after the last tool call, fall back to showing the
+  // whole thing as the answer (don't hide everything behind the collapse).
+  if (!answer) {
+    answer = process;
+    process = '';
+  }
+
+  return { full, process: process || undefined, answer };
+}
+
 /** Collect file refs from response inlineReference + contentReferences. */
 function collectFiles(response: unknown[], contentRefs: unknown[]): TurnFileRef[] {
   const byPath = new Map<string, TurnFileRef>();
@@ -107,6 +177,35 @@ function collectFiles(response: unknown[], contentRefs: unknown[]): TurnFileRef[
   }
 
   return Array.from(byPath.values());
+}
+
+/**
+ * Collect images the user attached to the prompt. They live in
+ * `request.variableData.variables[]` as `{ kind:'image', mimeType,
+ * value:{ $base64 } }`. We turn each into a ready-to-render data URI.
+ */
+function collectImages(variableData: unknown): TurnImage[] {
+  const images: TurnImage[] = [];
+  if (!isObj(variableData)) {
+    return images;
+  }
+  for (const v of arr(variableData.variables)) {
+    if (!isObj(v) || v.kind !== 'image') {
+      continue;
+    }
+    const mimeType = str(v.mimeType) ?? 'image/png';
+    const value = v.value;
+    const base64 = isObj(value) ? str(value.$base64) : undefined;
+    if (!base64) {
+      continue;
+    }
+    images.push({
+      mimeType,
+      dataUri: `data:${mimeType};base64,${base64}`,
+      name: str(v.name)
+    });
+  }
+  return images;
 }
 
 function countToolCalls(metadata: unknown): number {
@@ -167,7 +266,7 @@ export class SessionParserV3 implements ISessionParser {
       id: str(raw.sessionId) ?? ctx.filePath,
       title,
       workspaceId: ctx.workspaceId,
-      lastMessageDate: num(raw.lastMessageDate),
+      lastMessageDate: this.deriveLastMessageDate(raw, requests),
       turnCount: validCount
     };
   }
@@ -200,7 +299,7 @@ export class SessionParserV3 implements ISessionParser {
       title: this.deriveTitle(raw, requests),
       workspaceId: ctx.workspaceId,
       creationDate: num(raw.creationDate),
-      lastMessageDate: num(raw.lastMessageDate),
+      lastMessageDate: this.deriveLastMessageDate(raw, requests),
       turns
     };
   }
@@ -212,6 +311,29 @@ export class SessionParserV3 implements ISessionParser {
     const message = isObj(req.message) ? req.message : undefined;
     const text = message ? str(message.text) : undefined;
     return !!text && text.trim().length > 0;
+  }
+
+  private deriveLastMessageDate(
+    raw: Record<string, unknown>,
+    requests: unknown[]
+  ): number | undefined {
+    const top = num(raw.lastMessageDate);
+    if (top !== undefined) {
+      return top;
+    }
+    // Newer `.jsonl` snapshots may omit the top-level lastMessageDate; fall
+    // back to the latest request timestamp so recent-first ordering still works.
+    let latest: number | undefined;
+    for (const req of requests) {
+      if (!isObj(req)) {
+        continue;
+      }
+      const ts = num(req.timestamp);
+      if (ts !== undefined && (latest === undefined || ts > latest)) {
+        latest = ts;
+      }
+    }
+    return latest;
   }
 
   private deriveTitle(raw: Record<string, unknown>, requests: unknown[]): string {
@@ -241,16 +363,15 @@ export class SessionParserV3 implements ISessionParser {
     const prompt = str(message.text) ?? '';
     const response = arr(req.response);
 
-    let responseMarkdown = '';
-    for (const seg of response) {
-      responseMarkdown += segmentText(seg);
-    }
+    const parts = splitResponseParts(response);
+    const responseMarkdown = parts.full;
 
     const result = isObj(req.result) ? req.result : undefined;
     const metadata = result && isObj(result.metadata) ? result.metadata : undefined;
 
     const { status, errorMessage } = deriveStatus(req);
     const files = collectFiles(response, arr(req.contentReferences));
+    const images = collectImages(req.variableData);
     const toolCallCount = countToolCalls(metadata);
     const hasCode = hasCodeBlocks(metadata, responseMarkdown);
 
@@ -264,6 +385,8 @@ export class SessionParserV3 implements ISessionParser {
       index,
       prompt,
       responseMarkdown,
+      processMarkdown: parts.process,
+      answerMarkdown: parts.answer,
       summary: this.summarize(prompt),
       timestamp,
       model: modelDisplayName(req.modelId),
@@ -271,6 +394,7 @@ export class SessionParserV3 implements ISessionParser {
       errorMessage,
       hasCode,
       files,
+      images,
       length,
       charCount,
       toolCallCount,

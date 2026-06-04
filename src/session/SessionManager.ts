@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { Session, SessionSummary, Turn } from '../model/types';
+import type { GlobalSearchHit, MatchTarget } from '../messaging/protocol';
 import type { IChatSource, RawSessionFile } from '../source/IChatSource';
 import type { ParserRegistry } from '../parser/parserRegistry';
 import type { IStarStore } from '../store/starStore';
@@ -10,7 +11,8 @@ export interface ISessionManager {
   listSessions(): SessionSummary[];
   selectSession(id: string): Promise<Session | undefined>;
   getCurrent(): Session | undefined;
-  search(keyword: string): Turn[];
+  search(keyword: string, target: MatchTarget): Turn[];
+  searchGlobal(keyword: string, target: MatchTarget): GlobalSearchHit[];
   toggleStar(turnId: string): void;
   isStarred(turnId: string): boolean;
   stars(): string[];
@@ -25,6 +27,8 @@ export class SessionManager implements ISessionManager {
   private current: Session | undefined;
   private currentId: string | undefined;
   private changeSub: vscode.Disposable | undefined;
+  /** Parsed-session cache (cleared on refresh) to keep global search cheap. */
+  private parsedCache = new Map<string, Session>();
 
   constructor(
     private readonly source: IChatSource,
@@ -49,6 +53,7 @@ export class SessionManager implements ISessionManager {
   async refresh(): Promise<void> {
     const raws = await this.source.loadRawSessions();
     this.rawById.clear();
+    this.parsedCache.clear();
     const summaries: SessionSummary[] = [];
     for (const raw of raws) {
       this.rawById.set(raw.sessionId, raw);
@@ -93,16 +98,85 @@ export class SessionManager implements ISessionManager {
     return this.currentId;
   }
 
-  search(keyword: string): Turn[] {
+  search(keyword: string, target: MatchTarget): Turn[] {
     const kw = keyword.trim().toLowerCase();
     if (!kw || !this.current) {
       return this.current?.turns ?? [];
     }
-    return this.current.turns.filter(
-      (t) =>
-        t.prompt.toLowerCase().includes(kw) ||
-        t.responseMarkdown.toLowerCase().includes(kw)
-    );
+    return this.current.turns.filter((t) => this.matches(t, kw, target));
+  }
+
+  /** Search every session; returns a flat list of matching turns with context. */
+  searchGlobal(keyword: string, target: MatchTarget): GlobalSearchHit[] {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) {
+      return [];
+    }
+    const hits: GlobalSearchHit[] = [];
+    for (const summary of this.summaries) {
+      const parsed = this.getParsed(summary.id);
+      if (!parsed) {
+        continue;
+      }
+      for (const t of parsed.turns) {
+        if (!this.matches(t, kw, target)) {
+          continue;
+        }
+        hits.push({
+          sessionId: parsed.id,
+          sessionTitle: parsed.title,
+          turnId: t.id,
+          index: t.index,
+          summary: t.summary,
+          snippet: this.makeSnippet(t, kw, target),
+          prompt: t.prompt,
+          responseMarkdown: t.responseMarkdown,
+          processMarkdown: t.processMarkdown,
+          answerMarkdown: t.answerMarkdown,
+          images: t.images,
+          model: t.model,
+          status: t.status,
+          timestamp: t.timestamp
+        });
+      }
+    }
+    return hits;
+  }
+
+  /** Whether a turn matches the keyword within the requested target fields. */
+  private matches(turn: Turn, kw: string, target: MatchTarget): boolean {
+    const inPrompt = target !== 'response' && turn.prompt.toLowerCase().includes(kw);
+    const inResponse =
+      target !== 'prompt' && turn.responseMarkdown.toLowerCase().includes(kw);
+    return inPrompt || inResponse;
+  }
+
+  /** Build a short excerpt around the first keyword match (prompt preferred). */
+  private makeSnippet(turn: Turn, kw: string, target: MatchTarget): string {
+    const sources: string[] = [];
+    if (target !== 'response') {
+      sources.push(turn.prompt);
+    }
+    if (target !== 'prompt') {
+      sources.push(turn.responseMarkdown);
+    }
+    for (const text of sources) {
+      const idx = text.toLowerCase().indexOf(kw);
+      if (idx === -1) {
+        continue;
+      }
+      const start = Math.max(0, idx - 30);
+      const end = Math.min(text.length, idx + kw.length + 50);
+      let snip = text.slice(start, end).replace(/\s+/g, ' ').trim();
+      if (start > 0) {
+        snip = '…' + snip;
+      }
+      if (end < text.length) {
+        snip = snip + '…';
+      }
+      return snip;
+    }
+    return turn.summary;
   }
 
   toggleStar(turnId: string): void {
@@ -129,5 +203,18 @@ export class SessionManager implements ISessionManager {
         filePath: raw.filePath
       }) ?? undefined
     );
+  }
+
+  /** Parse-with-cache, used by global search to avoid re-parsing each keystroke. */
+  private getParsed(id: string): Session | undefined {
+    const cached = this.parsedCache.get(id);
+    if (cached) {
+      return cached;
+    }
+    const parsed = this.parseDetail(id);
+    if (parsed) {
+      this.parsedCache.set(id, parsed);
+    }
+    return parsed;
   }
 }

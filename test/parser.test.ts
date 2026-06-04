@@ -34,6 +34,116 @@ test('parses a normal v3 session into turns', () => {
   assert.equal(t2.errorMessage, 'Request failed');
 });
 
+test('strips empty fenced code blocks left over from tool edits', () => {
+  const reg = new ParserRegistry();
+  const raw = {
+    version: 3,
+    requests: [
+      {
+        requestId: 'r1',
+        message: { text: 'edit something' },
+        response: [
+          { value: { value: 'Now SessionManager:' } },
+          { value: { value: '\n```\n' } },
+          { value: { value: '\n```\n' } },
+          { value: { value: '\n```\n' } },
+          { value: { value: '\n```\n' } },
+          { value: { value: 'Done.' } }
+        ]
+      }
+    ]
+  };
+  const session = reg.parseSession(raw, ctx);
+  assert.ok(session);
+  const md = session!.turns[0].responseMarkdown;
+  // No empty code fences and no big blank-line runs remain.
+  assert.equal(/```/.test(md), false);
+  assert.equal(/\n{3,}/.test(md), false);
+  assert.equal(md, 'Now SessionManager:\n\nDone.');
+});
+
+test('splits process narration from the final answer around tool calls', () => {
+  const reg = new ParserRegistry();
+  const raw = {
+    version: 3,
+    requests: [
+      {
+        requestId: 'r1',
+        message: { text: 'do work' },
+        response: [
+          { value: { value: 'Now let me read the file.' } },
+          { kind: 'prepareToolInvocation' },
+          { kind: 'toolInvocationSerialized' },
+          { value: { value: '\n```\n' } },
+          { value: { value: '\n```\n' } },
+          { value: { value: 'Now apply the edit.' } },
+          { kind: 'toolInvocationSerialized' },
+          { value: { value: 'Done. All green.' } }
+        ]
+      }
+    ]
+  };
+  const session = reg.parseSession(raw, ctx);
+  assert.ok(session);
+  const t = session!.turns[0];
+  // Narration before the last tool call is the collapsed process part.
+  assert.equal(t.processMarkdown, 'Now let me read the file.\n\nNow apply the edit.');
+  // Text after the last tool call is the final answer.
+  assert.equal(t.answerMarkdown, 'Done. All green.');
+  // responseMarkdown stays the full concatenation (used for search).
+  assert.ok(t.responseMarkdown.includes('Now let me read the file.'));
+  assert.ok(t.responseMarkdown.includes('Done. All green.'));
+});
+
+test('answer-only turns have no process section', () => {
+  const reg = new ParserRegistry();
+  const raw = {
+    version: 3,
+    requests: [
+      {
+        requestId: 'r1',
+        message: { text: 'hi' },
+        response: [{ value: { value: 'Just a plain answer.' } }]
+      }
+    ]
+  };
+  const session = reg.parseSession(raw, ctx)!;
+  const t = session.turns[0];
+  assert.equal(t.processMarkdown, undefined);
+  assert.equal(t.answerMarkdown, 'Just a plain answer.');
+});
+
+test('extracts pasted prompt images as data URIs', () => {
+  const reg = new ParserRegistry();
+  const raw = {
+    version: 3,
+    requests: [
+      {
+        requestId: 'r1',
+        message: { text: 'look at this' },
+        response: [{ value: { value: 'Sure.' } }],
+        variableData: {
+          variables: [
+            {
+              kind: 'image',
+              name: '粘贴的图像',
+              mimeType: 'image/png',
+              value: { $base64: 'iVBORw0KGgo=' }
+            },
+            { kind: 'file', name: 'x.ts' }
+          ]
+        }
+      }
+    ]
+  };
+  const session = reg.parseSession(raw, ctx)!;
+  const t = session.turns[0];
+  assert.equal(t.images.length, 1);
+  assert.equal(t.images[0].mimeType, 'image/png');
+  assert.equal(t.images[0].name, '粘贴的图像');
+  assert.equal(t.images[0].dataUri, 'data:image/png;base64,iVBORw0KGgo=');
+});
+
 test('summary filters empty sessions and counts valid turns', () => {
   const reg = new ParserRegistry();
   const summary = reg.parseSummary(readFixture('v3-sample.json'), ctx);

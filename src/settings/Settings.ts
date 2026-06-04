@@ -1,10 +1,8 @@
 import * as vscode from 'vscode';
-import type { Layout } from '../messaging/protocol';
 
 export type Source = 'local' | 'participant';
 
 interface SettingsShape {
-  layout: Layout;
   source: Source;
   storagePath: string;
   refreshDebounceMs: number;
@@ -22,7 +20,6 @@ export class Settings {
   constructor() {
     this.disposable = vscode.workspace.onDidChangeConfiguration((e) => {
       const keys: (keyof SettingsShape)[] = [
-        'layout',
         'source',
         'storagePath',
         'refreshDebounceMs',
@@ -39,10 +36,6 @@ export class Settings {
 
   private cfg(): vscode.WorkspaceConfiguration {
     return vscode.workspace.getConfiguration('chatTimeline');
-  }
-
-  get layout(): Layout {
-    return this.cfg().get<Layout>('layout', 'detail');
   }
 
   get source(): Source {
@@ -63,10 +56,6 @@ export class Settings {
 
   get longThreshold(): number {
     return this.cfg().get<number>('longThreshold', 2000);
-  }
-
-  async setLayout(layout: Layout): Promise<void> {
-    await this.cfg().update('layout', layout, vscode.ConfigurationTarget.Global);
   }
 
   dispose(): void {

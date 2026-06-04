@@ -22,6 +22,16 @@ export interface TurnUsage {
   credits?: number;
 }
 
+/** An image the user attached to the prompt. */
+export interface TurnImage {
+  /** MIME type, e.g. image/png. */
+  mimeType: string;
+  /** Ready-to-render data URI (data:image/png;base64,...). */
+  dataUri: string;
+  /** Display name, e.g. "pasted image". */
+  name?: string;
+}
+
 /** One question/answer turn — a single node on the timeline. */
 export interface Turn {
   /** Original requestId, globally unique, used as the node key. */
@@ -32,6 +42,17 @@ export interface Turn {
   prompt: string;
   /** Full response, concatenated as Markdown. */
   responseMarkdown: string;
+  /**
+   * Intermediate "process" narration that appeared between tool calls
+   * (everything up to and including the last tool invocation). Undefined when
+   * the turn had no tool calls. Shown collapsed in the detail pane.
+   */
+  processMarkdown?: string;
+  /**
+   * The final answer markdown (text after the last tool call). Equals
+   * `responseMarkdown` when there were no tool calls.
+   */
+  answerMarkdown: string;
   /** Prompt summary (first N chars, shown by default). */
   summary: string;
   /** Occurrence time (epoch ms). May be undefined for old formats. */
@@ -46,6 +67,8 @@ export interface Turn {
   hasCode: boolean;
   /** Files involved (enhanced info C). */
   files: TurnFileRef[];
+  /** Images the user attached to the prompt. */
+  images: TurnImage[];
   /** Length bucket (enhanced info D). */
   length: LengthBucket;
   /** prompt + response char count (basis for `length`). */

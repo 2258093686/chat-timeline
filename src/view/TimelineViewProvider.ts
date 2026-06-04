@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import type { HostToView } from '../messaging/protocol';
 import { isViewToHost } from '../messaging/protocol';
 import type { SessionManager } from '../session/sessionManager';
-import type { Settings } from '../settings/settings';
 
 export class TimelineViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'chatTimeline.view';
@@ -12,8 +11,7 @@ export class TimelineViewProvider implements vscode.WebviewViewProvider {
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private manager: SessionManager,
-    private readonly settings: Settings
+    private manager: SessionManager
   ) {
     this.updateSub = this.manager.onDidUpdate(() => this.pushState());
   }
@@ -52,7 +50,6 @@ export class TimelineViewProvider implements vscode.WebviewViewProvider {
     }
     switch (raw.type) {
       case 'ready':
-        this.post({ type: 'layout', layout: this.settings.layout });
         this.pushState();
         break;
       case 'refresh':
@@ -65,8 +62,13 @@ export class TimelineViewProvider implements vscode.WebviewViewProvider {
         break;
       }
       case 'search': {
-        const turns = this.manager.search(raw.keyword);
-        this.post({ type: 'searchResult', turnIds: turns.map((t) => t.id) });
+        if (raw.scope === 'global') {
+          const hits = this.manager.searchGlobal(raw.keyword, raw.target);
+          this.post({ type: 'globalSearchResult', hits });
+        } else {
+          const turns = this.manager.search(raw.keyword, raw.target);
+          this.post({ type: 'searchResult', turnIds: turns.map((t) => t.id) });
+        }
         break;
       }
       case 'toggleStar':
@@ -86,10 +88,6 @@ export class TimelineViewProvider implements vscode.WebviewViewProvider {
         }
         break;
       }
-      case 'setLayout':
-        await this.settings.setLayout(raw.layout);
-        this.post({ type: 'layout', layout: raw.layout });
-        break;
       case 'selectTurn':
         // selection is handled entirely in the webview; no host action needed
         break;
@@ -115,13 +113,6 @@ export class TimelineViewProvider implements vscode.WebviewViewProvider {
     if (session) {
       this.post({ type: 'session', session, stars: this.manager.stars() });
     }
-  }
-
-  toggleLayout(): void {
-    const next = this.settings.layout === 'detail' ? 'compact' : 'detail';
-    void this.settings.setLayout(next).then(() => {
-      this.post({ type: 'layout', layout: next });
-    });
   }
 
   private getHtml(webview: vscode.Webview): string {
@@ -152,14 +143,50 @@ export class TimelineViewProvider implements vscode.WebviewViewProvider {
 <body>
   <div id="app">
     <header id="toolbar">
-      <select id="sessionSelect" title="Select session" aria-label="Select session"></select>
-      <div id="searchWrap">
-        <input id="search" type="text" placeholder="Search turns…" aria-label="Search turns" />
+      <div class="search-row">
+        <div id="searchWrap">
+          <div class="menu-wrap">
+            <button id="scopeBtn" class="icon-btn scope-trigger" title="Match scope" aria-haspopup="true" aria-expanded="false">≡</button>
+            <div id="scopeMenu" class="menu hidden" role="menu">
+              <div class="menu-title">Match scope</div>
+              <button id="targetBoth" class="menu-item" role="menuitemradio" type="button" data-target="both">
+                <span class="menu-check"></span><span class="menu-icon">≡</span><span class="menu-label">Question &amp; answer</span>
+              </button>
+              <button id="targetPrompt" class="menu-item" role="menuitemradio" type="button" data-target="prompt">
+                <span class="menu-check"></span><span class="menu-icon">Q</span><span class="menu-label">Question only</span>
+              </button>
+              <button id="targetResponse" class="menu-item" role="menuitemradio" type="button" data-target="response">
+                <span class="menu-check"></span><span class="menu-icon">A</span><span class="menu-label">Answer only</span>
+              </button>
+            </div>
+          </div>
+          <input id="search" type="text" placeholder="Search turns…" aria-label="Search turns" />
+          <button id="searchBtn" class="search-go" title="Search" aria-label="Search"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M11.74 10.85a6 6 0 1 0-.9.9l3.2 3.2a.64.64 0 0 0 .9-.9l-3.2-3.2ZM7 11.7a4.7 4.7 0 1 1 0-9.4 4.7 4.7 0 0 1 0 9.4Z"/></svg></button>
+          <button id="clearBtn" class="clear-btn" title="Clear" aria-label="Clear search">✕</button>
+        </div>
+        <div class="btn-group">
+        <div class="menu-wrap">
+          <button id="moreBtn" class="icon-btn" title="More settings" aria-haspopup="true" aria-expanded="false">⚙</button>
+          <div id="moreMenu" class="menu hidden" role="menu">
+            <button id="scopeItem" class="menu-item" role="menuitemcheckbox" type="button">
+              <span class="menu-check"></span><span class="menu-icon">🌐</span><span class="menu-label">Global search</span>
+            </button>
+            <button id="followItem" class="menu-item" role="menuitemcheckbox" type="button">
+              <span class="menu-check"></span><span class="menu-icon">📌</span><span class="menu-label">Follow active chat</span>
+            </button>
+            <button id="starItem" class="menu-item" role="menuitemcheckbox" type="button">
+              <span class="menu-check"></span><span class="menu-icon">★</span><span class="menu-label">Starred only</span>
+            </button>
+          </div>
+        </div>
+        </div>
       </div>
-      <button id="sortBtn" class="icon-btn" title="Toggle sort order">⇅</button>
-      <button id="followBtn" class="icon-btn" title="Follow latest">📌</button>
-      <button id="layoutBtn" class="icon-btn" title="Toggle layout">▭</button>
-      <button id="refreshBtn" class="icon-btn" title="Refresh">⟳</button>
+      <div class="session-row">
+        <select id="sessionSelect" title="Select session" aria-label="Select session"></select>
+        <div class="btn-group">
+          <button id="sortBtn" class="icon-btn" title="Sort: newest first">↓</button>
+        </div>
+      </div>
     </header>
     <div id="timeline" class="timeline" tabindex="0"></div>
     <div id="dragbar" title="Drag to resize"></div>
