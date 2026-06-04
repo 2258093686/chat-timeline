@@ -39,6 +39,8 @@ The extension reads VS Code's locally stored chat session files (`workspaceStora
 code --install-extension chat-timeline-1.0.0.vsix
 ```
 
+Or search for **Chat Timeline** in the VS Code Extensions Marketplace.
+
 Then open the **Chat Timeline** view from the Activity Bar.
 
 ## Develop

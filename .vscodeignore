@@ -2,6 +2,7 @@
 .vscode-test/**
 src/**
 media/**.ts
+media/icon-marketplace.svg
 test/**
 node_modules/**
 .gitignore

@@ -2,9 +2,13 @@
   "name": "chat-timeline",
   "displayName": "Chat Timeline",
   "description": "A session timeline / semantic minimap for GitHub Copilot Chat: browse, locate and revisit every question/answer turn as clickable timeline nodes.",
-  "version": "1.6.9",
-  "publisher": "vibe-prompts",
+  "version": "1.0.1",
+  "publisher": "YK-dev",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/2258093686/chat-timeline.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -19,6 +23,7 @@
     "history",
     "minimap"
   ],
+  "icon": "media/icon.png",
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
