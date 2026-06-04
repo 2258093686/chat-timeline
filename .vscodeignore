@@ -7,7 +7,9 @@ node_modules/**
 .gitignore
 esbuild.js
 tsconfig.json
+tsconfig.test.json
 .eslintrc.json
 **/*.map
 **/*.ts
+**/*.vsix
 !dist/**

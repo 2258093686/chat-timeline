@@ -369,3 +369,67 @@ body {
 .hl-comment {
   color: var(--vscode-descriptionForeground);
 }
+
+/* ---- highlight.js token theme, mapped to VS Code editor token colors ---- */
+.hljs {
+  color: var(--vscode-editor-foreground, var(--vscode-foreground));
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-name,
+.hljs-tag {
+  color: var(--vscode-debugTokenExpression-name, #569cd6);
+}
+
+.hljs-string,
+.hljs-title,
+.hljs-section,
+.hljs-attribute,
+.hljs-literal,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-addition {
+  color: var(--vscode-debugTokenExpression-string, #ce9178);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: var(--vscode-debugTokenExpression-number, #b5cea8);
+}
+
+.hljs-variable,
+.hljs-attr,
+.hljs-property,
+.hljs-params,
+.hljs-meta {
+  color: var(--vscode-debugTokenExpression-value, #9cdcfe);
+}
+
+.hljs-function .hljs-title,
+.hljs-title.function_ {
+  color: var(--vscode-charts-yellow, #dcdcaa);
+}
+
+.hljs-deletion {
+  color: var(--vscode-charts-red, #f85149);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+

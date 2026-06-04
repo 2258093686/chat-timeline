@@ -46,7 +46,7 @@ Then open the **Chat Timeline** view from the Activity Bar.
 ```powershell
 npm install
 npm run compile   # type-check + bundle host & webview
-npm test          # run unit tests (Vitest)
+npm test          # run unit tests (node:test + tsx)
 npm run lint      # ESLint
 npm run package   # produce the .vsix
 ```
